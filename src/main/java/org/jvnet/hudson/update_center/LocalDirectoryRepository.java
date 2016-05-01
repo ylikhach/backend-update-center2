@@ -106,12 +106,14 @@ public class LocalDirectoryRepository extends MavenRepository
             
             final String extension = FilenameUtils.getExtension(filename);
 
+            // Extension-Name and Implementation-Title is not set for plugin using gradle (ex: ivy:1.26)
+            // Short-Name seems always present and have the same value as the other two.
+            String artifactId = manifest.getMainAttributes().getValue("Short-Name");
             ArtifactInfo a = new ArtifactInfo(
                     null,  // fname
                     extension,
                     groupId,
-                    manifest.getMainAttributes().getValue("Extension-Name"),    // artifactId
-                        // maybe Short-Name or Implementation-Title is more proper.
+                    artifactId,
                     manifest.getMainAttributes().getValue("Plugin-Version"),    // version
                         // maybe Implementation-Version is more proper.
                     null,  // classifier
