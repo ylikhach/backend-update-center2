@@ -305,7 +305,7 @@ public class Plugin {
 
     public String getTitle() {
         String title = page != null ? page.getTitle() : null;
-        if (title == null)
+        if (title == null && pom != null)
             title = selectSingleValue(pom, "/project/name");
         if (title == null)
             title = artifactId;
