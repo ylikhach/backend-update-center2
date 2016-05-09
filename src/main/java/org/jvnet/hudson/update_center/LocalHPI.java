@@ -73,21 +73,43 @@ public class LocalHPI extends HPI
     @Override
     public File resolvePOM() throws IOException
     {
-        JarFile jar = new JarFile(jarFile);
-        String pomPath = String.format("META-INF/maven/%s/%s/pom.xml", artifact.groupId, artifact.artifactId);
-        ZipEntry e = jar.getEntry(pomPath);
-        
-        File temporaryFile = File.createTempFile(artifact.artifactId, ".xml");
-        temporaryFile.deleteOnExit();
-        
-        InputStream in = jar.getInputStream(e);
-        OutputStream out = new FileOutputStream(temporaryFile);
-        
-        IOUtils.copy(in, out);
-        
-        out.close();
-        in.close();
-        jar.close();
-        return temporaryFile;
+        JarFile jar = null;
+        InputStream in = null;
+        OutputStream out = null;
+        try
+        {
+            jar = new JarFile(jarFile);
+            String pomPath = String.format("META-INF/maven/%s/%s/pom.xml", artifact.groupId, artifact.artifactId);
+            ZipEntry e = jar.getEntry(pomPath);
+            if (e == null)
+            {
+                return null;
+            }
+            
+            File temporaryFile = File.createTempFile(artifact.artifactId, ".xml");
+            temporaryFile.deleteOnExit();
+            
+            in = jar.getInputStream(e);
+            out = new FileOutputStream(temporaryFile);
+            
+            IOUtils.copy(in, out);
+            
+            return temporaryFile;
+        }
+        finally
+        {
+            if (out != null)
+            {
+                out.close();
+            }
+            if (in != null)
+            {
+                in.close();
+            }
+            if (jar != null)
+            {
+                jar.close();
+            }
+        }
     }
 }
