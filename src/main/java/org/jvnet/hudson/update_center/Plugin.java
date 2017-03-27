@@ -23,7 +23,6 @@
  */
 package org.jvnet.hudson.update_center;
 
-import hudson.plugins.jira.soap.RemotePage;
 import net.sf.json.JSONArray;
 import net.sf.json.JSONObject;
 import org.dom4j.Document;
@@ -36,7 +35,6 @@ import org.sonatype.nexus.index.ArtifactInfo;
 
 import java.io.File;
 import java.io.IOException;
-import java.rmi.RemoteException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -69,43 +67,22 @@ public class Plugin {
      * Latest version of this plugin.
      */
     public final HPI previous;
-    /**
-     * Confluence page of this plugin in Wiki.
-     * Null if we couldn't find it.
-     */
-    public final RemotePage page;
-
-    /**
-     * Confluence labels for the plugin wiki page.
-     * Null if wiki page wasn't found.
-     */
-    private String[] labels;
-    private boolean labelsRead = false;
-
-    /**
-     * Deprecated plugins should not be included in update center.
-     */
-    private boolean deprecated = false;
 
     private final SAXReader xmlReader;
-    private final ConfluencePluginList cpl;
 
     /**
      * POM parsed as a DOM.
      */
-    private final Document pom;
+    private Document pom;
 
-    public Plugin(String artifactId, HPI latest, HPI previous, ConfluencePluginList cpl) throws IOException {
+    public Plugin(String artifactId, HPI latest, HPI previous) throws IOException {
         this.artifactId = artifactId;
         this.latest = latest;
         this.previous = previous;
         this.xmlReader = createXmlReader();
-        this.pom = readPOM();
-        this.page = findPage(cpl);
-        this.cpl = cpl;
     }
 
-    public Plugin(PluginHistory hpi, ConfluencePluginList cpl) throws IOException {
+    public Plugin(PluginHistory hpi) throws IOException {
         this.artifactId = hpi.artifactId;
         List<HPI> versions = new ArrayList<HPI>();
         for (HPI h : hpi.artifacts.values()) {
@@ -124,13 +101,17 @@ public class Plugin {
         checkLatestDate(versions, latest);
 
         this.xmlReader = createXmlReader();
-        this.pom = readPOM();
-        this.page = findPage(cpl);
-        this.cpl = cpl;
     }
 
-    public Plugin(HPI hpi, ConfluencePluginList cpl) throws IOException {
-        this(hpi.artifact.artifactId, hpi,  null, cpl);
+    public Plugin(HPI hpi) throws IOException {
+        this(hpi.artifact.artifactId, hpi,  null);
+    }
+
+    private Document getPom() throws IOException {
+        if (pom == null) {
+            pom = readPOM();
+        }
+        return pom;
     }
 
     private SAXReader createXmlReader() {
@@ -163,46 +144,29 @@ public class Plugin {
         }
     }
 
-    /**
-     * Locates the page for this plugin on Wiki.
-     *
-     * <p>
-     * First we'll try to parse POM and obtain the URL.
-     * If that fails, find the nearest name from the children list.
-     */
-    private RemotePage findPage(ConfluencePluginList cpl) throws IOException {
-        try {
-            String p = OVERRIDES.getProperty(artifactId);
-            if(p!=null)
-                return cpl.getPage(p);
-        } catch (RemoteException e) {
-            System.err.println("** Override failed for "+artifactId);
-            e.printStackTrace();
-        }
+    /** @return The URL as specified in the POM, or the overrides file. */
+    public String getPluginUrl() throws IOException {
+        // Check whether the wiki URL should be overridden
+        String url = URL_OVERRIDES.getProperty(artifactId);
 
-        if (pom != null) {
-            String wikiPage = selectSingleValue(pom, "/project/url");
-            if (wikiPage != null) {
-                try {
-                    return cpl.getPage(wikiPage); // found the confluence page successfully
-                } catch (RemoteException e) {
-                    System.err.println("** Failed to fetch "+wikiPage);
-                    e.printStackTrace();
-                } catch (IllegalArgumentException e) {
-                    System.err.println(e.getMessage());
-                }
+        // Otherwise read the wiki URL from the POM, if any
+        if (getPom() != null) {
+            if (url == null) {
+                url = selectSingleValue(pom, "/project/url");
             }
         }
 
-        // try to guess the Wiki page
-        try {
-            return cpl.findNearest(artifactId);
-        } catch (RemoteException e) {
-            System.err.println("** Failed to locate nearest");
-            e.printStackTrace();
+        String originalUrl = url;
+
+        if (url != null) {
+            url = url.replace("wiki.hudson-ci.org/display/HUDSON/", "wiki.jenkins-ci.org/display/JENKINS/");
+            url = url.replace("http://wiki.jenkins-ci.org", "https://wiki.jenkins-ci.org");
         }
 
-        return null;
+        if (url != null && !url.equals(originalUrl)) {
+            LOGGER.info("Rewrote URL for plugin " + artifactId + " from " + originalUrl + " to " + url);
+        }
+        return url;
     }
 
     private static Node selectSingleNode(Document pom, String path) {
@@ -224,12 +188,12 @@ public class Plugin {
      * Get hostname of SCM specified in POM of latest release, or null.
      * Used to determine if source lives in github or svn.
      */
-    public String getScmHost() {
-        if (pom != null) {
+    public String getScmHost() throws IOException {
+        if (getPom() != null) {
             String scm = selectSingleValue(pom, "/project/scm/connection");
             if (scm == null) {
                 // Try parent pom
-                Element parent = (Element)selectSingleNode(pom, "/project/parent");
+                Element parent = (Element)selectSingleNode(getPom(), "/project/parent");
                 if (parent != null) try {
                     Document parentPom = xmlReader.read(
                             latest.repository.resolve(
@@ -256,70 +220,28 @@ public class Plugin {
     }
 
     public String[] getLabels() {
-        if (!labelsRead) readLabels();
-        return labels;
-    }
-
-    public boolean isDeprecated() {
-        if (!labelsRead) readLabels();
-        return deprecated;
-    }
-
-    private void readLabels() {
-        if (page!=null) try {
-            labels = cpl.getLabels(page);
-        } catch (RemoteException e) {
-            System.err.println("Failed to fetch labels for " + page.getUrl());
-            e.printStackTrace();
+        Object ret = LABEL_DEFINITIONS.get(artifactId);
+        if (ret == null) {
+            // handle missing entry in properties file
+            return new String[0];
         }
-        if (labels != null)
-            for (String label : labels)
-                if ("deprecated".equals(label)) {
-                    deprecated = true;
-                    break;
-                }
-        this.labelsRead = true;
+        String labels = ret.toString();
+        if (labels.trim().length() == 0) {
+            // handle empty entry in properties file
+            return new String[0];
+        }
+        return labels.split("\\s+");
     }
 
-    /**
-     * Obtains the excerpt of this wiki page in HTML. Otherwise null.
-     */
-    public String getExcerptInHTML() {
-        String content = page.getContent();
-        if(content==null)
-            return null;
-
-        Matcher m = EXCERPT_PATTERN.matcher(content);
-        if(!m.find())
-            return null;
-
-        String excerpt = m.group(1);
-        String oneLiner = NEWLINE_PATTERN.matcher(excerpt).replaceAll(" ");
-        return HYPERLINK_PATTERN.matcher(oneLiner).replaceAll("<a href='$2'>$1</a>");
-    }
-
-    // Tweaking to ignore leading whitespace after the initial {excerpt}
-    private static final Pattern EXCERPT_PATTERN = Pattern.compile("\\{excerpt(?::hidden(?:=true)?)?\\}\\s*(.+)\\{excerpt\\}", Pattern.DOTALL);
-    private static final Pattern HYPERLINK_PATTERN = Pattern.compile("\\[([^|\\]]+)\\|([^|\\]]+)(|([^]])+)?\\]");
-    private static final Pattern NEWLINE_PATTERN = Pattern.compile("(?:\\r\\n|\\n)");
-
-    public String getTitle() {
-        String title = page != null ? page.getTitle() : null;
-        if (title == null && pom != null)
-            title = selectSingleValue(pom, "/project/name");
-        if (title == null)
+    /** @return The plugin name defined in the POM &lt;name>; falls back to the wiki page title, then artifact ID. */
+    public String getName() throws IOException {
+        String title = selectSingleValue(getPom(), "/project/name");
+        if (title == null) {
             title = artifactId;
+        }
         return title;
     }
 
-    public String getWiki() {
-        String wiki = "";
-        if (page!=null) {
-            wiki = page.getUrl();
-        }
-        return wiki;
-    }
-    
     public JSONObject toJSON() throws IOException {
         JSONObject json = latest.toJSON(artifactId);
 
@@ -331,29 +253,18 @@ public class Plugin {
             json.put("previousTimestamp", fisheyeDateFormatter.format(previous.getTimestamp()));
         }
 
-        json.put("title", getTitle());
-        if (page!=null) {
-            json.put("wiki",page.getUrl());
-            String excerpt = getExcerptInHTML();
-            if (excerpt!=null)
-                json.put("excerpt",excerpt);
-            String[] labelList = getLabels();
-            if (labelList!=null)
-                json.put("labels",labelList);
-        }
+        json.put("title", getName());
         String scm = getScmHost();
         if (scm!=null) {
             json.put("scm", scm);
         }
 
-        if (!json.has("excerpt")) {
-            // fall back to <description>, which is plain text but still better than nothing.
-            if(pom != null)
-            {
-                String description = plainText2html(selectSingleValue(pom, "/project/description"));
-                if (description!=null)
-                    json.put("excerpt",description);
-            }
+        json.put("wiki", "https://plugins.jenkins.io/" + artifactId);
+        json.put("labels", getLabels());
+
+        String description = plainText2html(selectSingleValue(getPom(), "/project/description"));
+        if (description!=null) {
+            json.put("excerpt",description);
         }
 
         HPI hpi = latest;
@@ -394,11 +305,13 @@ public class Plugin {
         return plainText.replace("&","&amp;").replace("<","&lt;");
     }
 
-    private static final Properties OVERRIDES = new Properties();
+    private static final Properties URL_OVERRIDES = new Properties();
+    private static final Properties LABEL_DEFINITIONS = new Properties();
 
     static {
         try {
-            OVERRIDES.load(Plugin.class.getClassLoader().getResourceAsStream("wiki-overrides.properties"));
+            URL_OVERRIDES.load(Plugin.class.getClassLoader().getResourceAsStream("wiki-overrides.properties"));
+            LABEL_DEFINITIONS.load(Plugin.class.getClassLoader().getResourceAsStream("label-definitions.properties"));
         } catch (IOException e) {
             throw new Error(e);
         }
