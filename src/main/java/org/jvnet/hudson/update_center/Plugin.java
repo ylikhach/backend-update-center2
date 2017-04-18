@@ -177,7 +177,10 @@ public class Plugin {
     }
 
     private static String selectSingleValue(Document dom, String path) {
-        Node node = selectSingleNode(dom, path);
+        Node node = null;
+        if (dom != null) {
+            node = selectSingleNode(dom, path);
+        }
         return node != null ? ((Element)node).getTextTrim() : null;
     }
 
@@ -233,13 +236,26 @@ public class Plugin {
         return labels.split("\\s+");
     }
 
-    /** @return The plugin name defined in the POM &lt;name>; falls back to the wiki page title, then artifact ID. */
+    /** @return The plugin name defined in the POM &lt;name>; falls back to the MANIFEST name, then artifact ID. */
     public String getName() throws IOException {
         String title = selectSingleValue(getPom(), "/project/name");
         if (title == null) {
-            title = artifactId;
+            title = getNameFromManifiest();
+            if (title == null) {
+                title = artifactId;
+            }
         }
         return title;
+    }
+
+    private String getNameFromManifiest() {
+        try {
+            return latest.getDisplayName();
+        } catch (IOException e) {
+            System.err.println("** Can't get Long-Name from plugin manifest");
+            e.printStackTrace();
+            return null;
+        }
     }
 
     public JSONObject toJSON() throws IOException {
