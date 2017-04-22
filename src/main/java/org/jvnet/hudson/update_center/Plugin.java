@@ -71,6 +71,11 @@ public class Plugin {
     private final SAXReader xmlReader;
 
     /**
+     * Whether not to force the URL to plugins.jenkins.io
+     */
+    private boolean nowiki = false;
+
+    /**
      * POM parsed as a DOM.
      */
     private Document pom;
@@ -105,6 +110,14 @@ public class Plugin {
 
     public Plugin(HPI hpi) throws IOException {
         this(hpi.artifact.artifactId, hpi,  null);
+    }
+
+    public void setNowiki(boolean nowiki) {
+        this.nowiki = nowiki;
+    }
+
+    public boolean isNowiki() {
+        return nowiki;
     }
 
     private Document getPom() throws IOException {
@@ -275,7 +288,11 @@ public class Plugin {
             json.put("scm", scm);
         }
 
-        json.put("wiki", "https://plugins.jenkins.io/" + artifactId);
+        if (isNowiki()) {
+            json.put("wiki", getPluginUrl());
+        } else {
+            json.put("wiki", "https://plugins.jenkins.io/" + artifactId);
+        }
         json.put("labels", getLabels());
 
         String description = plainText2html(selectSingleValue(getPom(), "/project/description"));

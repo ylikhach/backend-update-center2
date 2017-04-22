@@ -109,7 +109,7 @@ public class Main {
     @Option(name="-includeSnapshots",usage="Include SNAPSHOT builds.")
     public boolean includeSnapshots;
 
-    @Option(name="-nowiki", usage="Do not refer wiki.jenkins-ci.org to retrieve plugin information.")
+    @Option(name="-nowiki", usage="Do not force URLs to plugin.jenkins.io.")
     public boolean nowiki;
 
     @Option(name="-maxPlugins",usage="For testing purposes. Limit the number of plugins managed to the specified number.")
@@ -275,6 +275,7 @@ public class Main {
                 System.out.println(hpi.artifactId);
 
                 Plugin plugin = new Plugin(hpi);
+                plugin.setNowiki(nowiki);
                 JSONObject json = plugin.toJSON();
                 System.out.println("=> " + json);
                 plugins.put(plugin.artifactId, json);
@@ -373,6 +374,7 @@ public class Main {
                 JSONObject o = new JSONObject();
                 try {
                     Plugin plugin = new Plugin(h);
+                    plugin.setNowiki(nowiki);
                     
                     if (h.getTimestampAsDate().after(oldestDate.getTime())) {
                         String title = plugin.getName();
