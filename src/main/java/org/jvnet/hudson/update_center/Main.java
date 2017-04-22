@@ -42,10 +42,12 @@ import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
+import java.util.GregorianCalendar;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -265,9 +267,6 @@ public class Main {
      * @param redirect
      */
     protected JSONObject buildPlugins(MavenRepository repository, PrintWriter redirect) throws Exception {
-        ConfluencePluginList cpl = nowiki?new NoConfluencePluginList():new ConfluencePluginList();
-        cpl.initialize();
-
         int total = 0;
 
         JSONObject plugins = new JSONObject();
@@ -275,14 +274,7 @@ public class Main {
             try {
                 System.out.println(hpi.artifactId);
 
-                Plugin plugin = new Plugin(hpi,cpl);
-                if (plugin.isDeprecated()) {
-                    System.out.println("=> Plugin is deprecated.. skipping.");
-                    continue;
-                }
-
-                System.out.println(
-                  plugin.page!=null ? "=> "+plugin.page.getTitle() : "** No wiki page found");
+                Plugin plugin = new Plugin(hpi);
                 JSONObject json = plugin.toJSON();
                 System.out.println("=> " + json);
                 plugins.put(plugin.artifactId, json);
@@ -365,8 +357,9 @@ public class Main {
     }
 
     protected JSONArray buildReleaseHistory(MavenRepository repository) throws Exception {
-        ConfluencePluginList cpl = nowiki?new NoConfluencePluginList():new ConfluencePluginList();
-        cpl.initialize();
+
+        Calendar oldestDate = new GregorianCalendar();
+        oldestDate.add(Calendar.DAY_OF_MONTH, -31);
 
         JSONArray releaseHistory = new JSONArray();
         for( Map.Entry<Date,Map<String,HPI>> relsOnDate : repository.listHudsonPluginsByReleaseDate().entrySet() ) {
@@ -379,19 +372,22 @@ public class Main {
                 HPI h = rel.getValue();
                 JSONObject o = new JSONObject();
                 try {
-                    Plugin plugin = new Plugin(h, cpl);
+                    Plugin plugin = new Plugin(h);
                     
-                    String title = plugin.getTitle();
-                    if ((title==null) || (title.equals(""))) {
-                        title = h.artifact.artifactId;
-                    }
-                    
-                    o.put("title", title);
-                    o.put("gav", h.artifact.groupId+':'+h.artifact.artifactId+':'+h.artifact.version);
-                    o.put("timestamp", h.getTimestamp());
-                    o.put("wiki", plugin.getWiki());
+                    if (h.getTimestampAsDate().after(oldestDate.getTime())) {
+                        String title = plugin.getName();
+                        if ((title==null) || (title.equals(""))) {
+                            title = h.artifact.artifactId;
+                        }
 
-                    System.out.println("\t" + title + ":" + h.version);
+                        o.put("title", title);
+                        o.put("wiki", plugin.getPluginUrl());
+                    }
+                    o.put("gav", h.getGavId());
+                    o.put("timestamp", h.getTimestamp());
+                    o.put("url", "https://plugins.jenkins.io/" + h.artifact.artifactId);
+
+                    System.out.println("\t" + h.getGavId());
                 } catch (IOException e) {
                     System.out.println("Failed to resolve plugin " + h.artifact.artifactId + " so using defaults");
                     o.put("title", h.artifact.artifactId);
