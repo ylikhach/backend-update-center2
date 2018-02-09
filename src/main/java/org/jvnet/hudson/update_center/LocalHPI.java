@@ -42,6 +42,8 @@ import org.sonatype.nexus.index.ArtifactInfo;
  */
 public class LocalHPI extends HPI
 {
+    private final static String TEMP_PREFIX = "uc_";
+
     private File jarFile;
     private URL url;
     
@@ -86,7 +88,7 @@ public class LocalHPI extends HPI
                 return null;
             }
             
-            File temporaryFile = File.createTempFile(artifact.artifactId, ".xml");
+            File temporaryFile = File.createTempFile(TEMP_PREFIX + artifact.artifactId, ".xml");
             temporaryFile.deleteOnExit();
             
             in = jar.getInputStream(e);
